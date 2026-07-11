@@ -1,0 +1,11 @@
+{
+  "name": "denkops-mcp",
+  "owner": { "name": "DenkOps", "email": "ops@denkops.com" },
+  "plugins": [
+    {
+      "name": "denkops",
+      "source": "./plugins/denkops",
+      "description": "Deploy and manage DenkOps projects from Claude Code."
+    }
+  ]
+}

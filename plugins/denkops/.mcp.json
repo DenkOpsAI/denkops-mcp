@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "denkops": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp.mjs"],
+      "env": {
+        "DENKOPS_CONTROL_PLANE_URL": "https://api.denkops.com",
+        "DENKOPS_TOKEN": "${DENKOPS_TOKEN}"
+      }
+    }
+  }
+}

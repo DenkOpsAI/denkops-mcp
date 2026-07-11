@@ -1,0 +1,6 @@
+{
+  "name": "denkops",
+  "description": "Deploy naar DenkOps + manage projects (logs, status, rollback) from Claude Code.",
+  "version": "0.1.0",
+  "author": { "name": "DenkOps" }
+}

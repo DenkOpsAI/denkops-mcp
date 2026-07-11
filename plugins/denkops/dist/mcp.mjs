@@ -19558,6 +19558,16 @@ class StdioServerTransport {
 }
 
 // ../cli/src/lib/api.ts
+class DeployConflictError extends Error {
+  existingProjectId;
+  slug;
+  constructor(message, existingProjectId, slug) {
+    super(message);
+    this.existingProjectId = existingProjectId;
+    this.slug = slug;
+    this.name = "DeployConflictError";
+  }
+}
 async function deployRequest(args) {
   const doFetch = args.fetchImpl ?? fetch;
   const form = new FormData;
@@ -19568,6 +19578,10 @@ async function deployRequest(args) {
     headers: { authorization: `Bearer ${args.token}` },
     body: form
   });
+  if (res.status === 409) {
+    const b = await res.json().catch(() => ({}));
+    throw new DeployConflictError(b.error ?? "project slug already exists", b.existingProjectId ?? "", b.slug ?? args.meta.slug);
+  }
   if (!res.ok) {
     throw new Error(`deploy failed (${res.status}): ${await res.text()}`);
   }
@@ -19617,7 +19631,8 @@ import { basename, join } from "node:path";
 var ConfigSchema = exports_external.object({
   name: exports_external.string().min(1),
   slug: exports_external.string().min(1),
-  runtime: exports_external.enum(["bun", "python"])
+  runtime: exports_external.enum(["bun", "python"]),
+  project: exports_external.string().optional()
 });
 async function readProjectConfig(dir) {
   const path = join(dir, "denkops.json");
@@ -19639,16 +19654,28 @@ function detectRuntime(dir) {
   const py = files.includes("requirements.txt") || files.includes("main.py") || files.some((f) => f.endsWith(".py"));
   return py ? "python" : "bun";
 }
-async function resolveProjectConfig(dir) {
-  if (existsSync(join(dir, "denkops.json")))
-    return readProjectConfig(dir);
+function inferProjectConfig(dir) {
   const name = basename(dir) || "app";
-  const cfg = { name, slug: slugify(name), runtime: detectRuntime(dir) };
+  return { name, slug: slugify(name), runtime: detectRuntime(dir) };
+}
+function writeProjectConfig(dir, cfg) {
   try {
     writeFileSync(join(dir, "denkops.json"), JSON.stringify(cfg, null, 2) + `
 `);
   } catch {}
-  return cfg;
+}
+function pinProject(dir, projectId) {
+  const path = join(dir, "denkops.json");
+  try {
+    if (!existsSync(path))
+      return;
+    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    if (cfg.project === projectId)
+      return;
+    cfg.project = projectId;
+    writeFileSync(path, JSON.stringify(cfg, null, 2) + `
+`);
+  } catch {}
 }
 // ../cli/src/lib/env.ts
 function parseDotEnv(text) {
@@ -22927,16 +22954,39 @@ async function runDeploy(opts) {
   if (!opts.token) {
     throw new Error("no auth token — set DENKOPS_TOKEN (interactive login comes later)");
   }
-  const cfg = await resolveProjectConfig(opts.dir);
+  const hadConfig = existsSync3(join3(opts.dir, "denkops.json"));
+  const cfg = hadConfig ? await readProjectConfig(opts.dir) : inferProjectConfig(opts.dir);
   const envPath = join3(opts.dir, ".env");
   const env = existsSync3(envPath) ? parseDotEnv(readFileSync3(envPath, "utf8")) : {};
   const tarball = await packDirectory(opts.dir);
-  return deployRequest({
-    controlPlaneUrl: opts.controlPlaneUrl,
-    token: opts.token,
-    meta: { slug: cfg.slug, name: cfg.name, runtime: cfg.runtime, env, public: false },
-    tarball
-  });
+  try {
+    const handle = await deployRequest({
+      controlPlaneUrl: opts.controlPlaneUrl,
+      token: opts.token,
+      fetchImpl: opts.fetchImpl,
+      meta: {
+        slug: cfg.slug,
+        name: cfg.name,
+        runtime: cfg.runtime,
+        env,
+        public: false,
+        projectId: cfg.project,
+        expectNew: !hadConfig && !cfg.project
+      },
+      tarball
+    });
+    if (!hadConfig) {
+      writeProjectConfig(opts.dir, { ...cfg, project: handle.projectId });
+    } else {
+      pinProject(opts.dir, handle.projectId);
+    }
+    return handle;
+  } catch (err) {
+    if (err instanceof DeployConflictError) {
+      throw new Error(`A project "${err.slug}" already exists (id ${err.existingProjectId}). ` + `To deploy a new version to it, add "project": "${err.existingProjectId}" to denkops.json; ` + `to create a separate project, change "slug" in denkops.json.`);
+    }
+    throw err;
+  }
 }
 // ../shared/src/config.ts
 import { chmodSync, existsSync as existsSync4, mkdirSync, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
@@ -22954,6 +23004,11 @@ function readConfig(path = configPath()) {
   } catch {
     return null;
   }
+}
+function writeConfig(cfg, path = configPath()) {
+  mkdirSync(dirname(path), { recursive: true, mode: 448 });
+  writeFileSync2(path, JSON.stringify(cfg, null, 2), { mode: 384 });
+  chmodSync(path, 384);
 }
 function loadToken(env = process.env) {
   if (env.DENKOPS_TOKEN)
@@ -23037,11 +23092,49 @@ redeploys. Put a SQLite DB or files there, e.g. \`/persist/denkops.store\`.
   result includes the \`project_id\` and the \`DENKOPS_API_KEY\` to call it.
 `;
 
+// src/login.ts
+import { spawn } from "node:child_process";
+function openBrowser(url) {
+  const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+  try {
+    spawn(cmd, [url], { stdio: "ignore", detached: true, shell: process.platform === "win32" }).unref();
+  } catch {}
+}
+async function runPairingLogin(controlPlaneUrl, deps = {}) {
+  const doFetch = deps.fetchImpl ?? fetch;
+  const sleep = deps.sleep ?? ((ms2) => new Promise((r) => setTimeout(r, ms2)));
+  const open = deps.openBrowser ?? openBrowser;
+  const write = deps.writeConfigImpl ?? ((cfg) => writeConfig(cfg));
+  const nowMs = () => deps.now?.() ?? Date.now();
+  const startRes = await doFetch(`${controlPlaneUrl}/api/pair/start`, { method: "POST" });
+  if (!startRes.ok)
+    throw new Error(`could not start login (control plane ${startRes.status})`);
+  const s3 = await startRes.json();
+  open(s3.approveUrl);
+  const deadline = nowMs() + (s3.expiresInSec ?? 600) * 1000;
+  while (nowMs() < deadline) {
+    const pollRes = await doFetch(`${controlPlaneUrl}/api/pair/poll`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pollToken: s3.pollToken })
+    });
+    const p2 = await pollRes.json();
+    if (p2.status === "approved" && p2.token) {
+      write({ controlPlaneUrl, token: p2.token });
+      return { text: `✓ Logged in to ${p2.tenantName ?? p2.tenantId} (code ${s3.code}). Now say "deploy naar denkops".` };
+    }
+    if (p2.status === "expired")
+      break;
+    await sleep(2000);
+  }
+  return { text: `Login not completed. Open ${s3.approveUrl} (code ${s3.code}) and click Approve, then say "login bij denkops" again.` };
+}
+
 // src/tools.ts
 function resolveCtx(env2 = process.env) {
   const token = loadToken(env2);
   if (!token) {
-    throw new Error("Not logged in to DenkOps. Run `denkops login` once (or set DENKOPS_TOKEN).");
+    throw new Error("Not logged in to DenkOps — say 'login bij denkops' to authenticate (opens your browser).");
   }
   return { controlPlaneUrl: resolveControlPlaneUrl(env2), token };
 }
@@ -23127,6 +23220,14 @@ function registerTools(server) {
   }, async ({ project_id, version: version2 }) => guard(async () => {
     const r = await rollbackImpl({ project_id, version: version2 }, resolveCtx());
     return ok(r, `Rolled back to v${r.version}.`);
+  }));
+  server.registerTool("login", {
+    title: "Log in to DenkOps",
+    description: "Log in to DenkOps by approving a pairing in your browser (opens app.denkops.com). Run this if a deploy says you're not logged in.",
+    inputSchema: {}
+  }, async () => guard(async () => {
+    const r = await runPairingLogin(resolveControlPlaneUrl(process.env));
+    return { content: [{ type: "text", text: r.text }] };
   }));
   server.registerTool("get_denkops_guide", {
     title: "DenkOps API conventions",

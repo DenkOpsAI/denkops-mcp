@@ -19625,6 +19625,39 @@ async function rollback(args) {
     throw new Error(`rollback failed (${res.status}): ${await res.text()}`);
   return await res.json();
 }
+async function errorFrom(res) {
+  const body = await res.json().catch(() => ({}));
+  return body.error ?? res.statusText;
+}
+async function stopProject(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/stop`, {
+    method: "POST",
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`stop failed (${res.status}): ${await errorFrom(res)}`);
+}
+async function startProject(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/start`, {
+    method: "POST",
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`start failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function deleteProject(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}`, {
+    method: "DELETE",
+    headers: { ...authHeaders(args.token), "content-type": "application/json" },
+    body: JSON.stringify({ confirm: args.confirm })
+  });
+  if (!res.ok)
+    throw new Error(`delete failed (${res.status}): ${await errorFrom(res)}`);
+}
 // ../cli/src/lib/config.ts
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -23087,7 +23120,7 @@ redeploys. Put a SQLite DB or files there, e.g. \`/persist/denkops.store\`.
 
 - \`denkops.json\` = \`{ name, slug, runtime }\`. It's created automatically on the first deploy
   (inferred from the directory); edit \`slug\`/\`name\` to pin them.
-- To ship: say **"deploy naar denkops"**. The MCP packs the current directory and deploys it; a new
+- To ship: say **"deploy on DenkOps"**. The MCP packs the current directory and deploys it; a new
   project is created zero-config. Your app goes live at \`https://<slug>.<app-domain>\`, and the deploy
   result includes the \`project_id\` and the \`DENKOPS_API_KEY\` to call it.
 `;
@@ -23121,20 +23154,20 @@ async function runPairingLogin(controlPlaneUrl, deps = {}) {
     const p2 = await pollRes.json();
     if (p2.status === "approved" && p2.token) {
       write({ controlPlaneUrl, token: p2.token });
-      return { text: `✓ Logged in to ${p2.tenantName ?? p2.tenantId} (code ${s3.code}). Now say "deploy naar denkops".` };
+      return { text: `✓ Logged in to ${p2.tenantName ?? p2.tenantId} (code ${s3.code}). Now say "deploy on DenkOps".` };
     }
     if (p2.status === "expired")
       break;
     await sleep(2000);
   }
-  return { text: `Login not completed. Open ${s3.approveUrl} (code ${s3.code}) and click Approve, then say "login bij denkops" again.` };
+  return { text: `Login not completed. Open ${s3.approveUrl} (code ${s3.code}) and click Approve, then say "log in to DenkOps" again.` };
 }
 
 // src/tools.ts
 function resolveCtx(env2 = process.env) {
   const token = loadToken(env2);
   if (!token) {
-    throw new Error("Not logged in to DenkOps — say 'login bij denkops' to authenticate (opens your browser).");
+    throw new Error("Not logged in to DenkOps — say 'log in to DenkOps' to authenticate (opens your browser).");
   }
   return { controlPlaneUrl: resolveControlPlaneUrl(env2), token };
 }
@@ -23171,6 +23204,20 @@ async function logsImpl(input, ctx) {
 }
 async function rollbackImpl(input, ctx) {
   return rollback({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, version: input.version, fetchImpl: ctx.fetchImpl });
+}
+async function stopProjectImpl(input, ctx) {
+  await stopProject({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, fetchImpl: ctx.fetchImpl });
+  return { ok: true };
+}
+async function startProjectImpl(input, ctx) {
+  return startProject({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, fetchImpl: ctx.fetchImpl });
+}
+async function deleteProjectImpl(input, ctx) {
+  if (!input.confirm || input.confirm.trim() === "") {
+    return { instruction: "This permanently deletes the deployment and all its data and cannot be undone. To proceed, call delete_project again with confirm set to the project's exact slug." };
+  }
+  await deleteProject({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, confirm: input.confirm, fetchImpl: ctx.fetchImpl });
+  return { ok: true };
 }
 function ok(structured, text) {
   return { content: [{ type: "text", text }], structuredContent: structured };
@@ -23220,6 +23267,22 @@ function registerTools(server) {
   }, async ({ project_id, version: version2 }) => guard(async () => {
     const r = await rollbackImpl({ project_id, version: version2 }, resolveCtx());
     return ok(r, `Rolled back to v${r.version}.`);
+  }));
+  server.registerTool("stop_project", { title: "Stop a project", description: "Stop a DenkOps deployment (containers stop and it goes offline). Reversible with start_project.", inputSchema: { project_id: exports_external.string() } }, async ({ project_id }) => guard(async () => {
+    const r = await stopProjectImpl({ project_id }, resolveCtx());
+    return ok(r, "Project stopped. Use start_project to bring it back.");
+  }));
+  server.registerTool("start_project", { title: "Start a project", description: "Start a stopped DenkOps deployment again (reactivates its active version).", inputSchema: { project_id: exports_external.string() } }, async ({ project_id }) => guard(async () => {
+    const r = await startProjectImpl({ project_id }, resolveCtx());
+    return ok(r, `Project started (v${r.version}).`);
+  }));
+  server.registerTool("delete_project", {
+    title: "Delete a project",
+    description: "PERMANENTLY delete a DenkOps deployment and ALL its data (containers, images, volume, and records). Cannot be undone. Requires `confirm` set to the project's exact slug; call with an empty confirm first to see the confirmation instruction.",
+    inputSchema: { project_id: exports_external.string(), confirm: exports_external.string().optional().describe("The project's exact slug, to confirm permanent deletion") }
+  }, async ({ project_id, confirm }) => guard(async () => {
+    const r = await deleteProjectImpl({ project_id, confirm }, resolveCtx());
+    return ok(r, r.instruction ?? "Project permanently deleted.");
   }));
   server.registerTool("login", {
     title: "Log in to DenkOps",

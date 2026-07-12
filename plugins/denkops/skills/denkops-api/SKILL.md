@@ -83,8 +83,11 @@ For raw files, write under `/persist` directly — its path is also in `DENKOPS_
 
 ## Config & deploy
 
-- `denkops.json` = `{ name, slug, runtime }`. It's created automatically on the first deploy
-  (inferred from the directory); edit `slug`/`name` to pin them.
+- `denkops.json` = `{ name, slug, runtime }`, plus optional `region` and `streaming`. It's created
+  automatically on the first deploy (inferred from the directory); edit `slug`/`name` to pin them.
+- `"streaming": true` opts the project out of response buffering so it can stream (SSE / chunked /
+  long-poll) — set it for LLM token streams, progress events, etc. Trade-off: a streaming project has
+  no response-size cap. Applies on the next deploy (say **"deploy on DenkOps"** to apply a change).
 - To ship: say **"deploy on DenkOps"**. The MCP packs the current directory and deploys it; a new
   project is created zero-config. Your app goes live at `https://<slug>.<app-domain>`, and the deploy
   result includes the `project_id` and the `DENKOPS_API_KEY` to call it.

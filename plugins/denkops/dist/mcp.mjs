@@ -19714,16 +19714,37 @@ async function queryProjectLogs(args) {
     throw new Error(`logs failed (${res.status}): ${await errorFrom(res)}`);
   return await res.json();
 }
+async function getPublicPaths(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/public-paths`, {
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`public-paths failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function setPublicPaths(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/public-paths`, {
+    method: "PUT",
+    headers: { ...authHeaders(args.token), "content-type": "application/json" },
+    body: JSON.stringify({ paths: args.paths })
+  });
+  if (!res.ok)
+    throw new Error(`set public-paths failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
 // ../cli/src/lib/config.ts
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-var KNOWN_KEYS = ["name", "slug", "runtime", "region", "project"];
+var KNOWN_KEYS = ["name", "slug", "runtime", "region", "project", "streaming"];
 var ConfigSchema = exports_external.object({
   name: exports_external.string().min(1),
   slug: exports_external.string().min(1),
   runtime: exports_external.enum(["bun", "python"]),
   region: exports_external.string().optional(),
-  project: exports_external.string().optional()
+  project: exports_external.string().optional(),
+  streaming: exports_external.boolean().optional()
 });
 async function readProjectConfig(dir) {
   const path = join(dir, "denkops.json");
@@ -23066,6 +23087,7 @@ async function runDeploy(opts) {
         runtime: cfg.runtime,
         env,
         public: false,
+        streaming: cfg.streaming,
         projectId: cfg.project,
         expectNew: !hadConfig && !cfg.project
       },
@@ -23197,8 +23219,11 @@ For raw files, write under \`/persist\` directly — its path is also in \`DENKO
 
 ## Config & deploy
 
-- \`denkops.json\` = \`{ name, slug, runtime }\`. It's created automatically on the first deploy
-  (inferred from the directory); edit \`slug\`/\`name\` to pin them.
+- \`denkops.json\` = \`{ name, slug, runtime }\`, plus optional \`region\` and \`streaming\`. It's created
+  automatically on the first deploy (inferred from the directory); edit \`slug\`/\`name\` to pin them.
+- \`"streaming": true\` opts the project out of response buffering so it can stream (SSE / chunked /
+  long-poll) — set it for LLM token streams, progress events, etc. Trade-off: a streaming project has
+  no response-size cap. Applies on the next deploy (say **"deploy on DenkOps"** to apply a change).
 - To ship: say **"deploy on DenkOps"**. The MCP packs the current directory and deploys it; a new
   project is created zero-config. Your app goes live at \`https://<slug>.<app-domain>\`, and the deploy
   result includes the \`project_id\` and the \`DENKOPS_API_KEY\` to call it.
@@ -23325,6 +23350,12 @@ async function unsetEnvImpl(input, ctx) {
 async function redeployImpl(input, ctx) {
   return redeploy({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, fetchImpl: ctx.fetchImpl });
 }
+async function getPublicPathsImpl(input, ctx) {
+  return getPublicPaths({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, fetchImpl: ctx.fetchImpl });
+}
+async function setPublicPathsImpl(input, ctx) {
+  return setPublicPaths({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, paths: input.paths, fetchImpl: ctx.fetchImpl });
+}
 function ok(structured, text) {
   return { content: [{ type: "text", text }], structuredContent: structured };
 }
@@ -23414,6 +23445,24 @@ function registerTools(server) {
   server.registerTool("redeploy", { title: "Redeploy a project", description: "Re-run the current version of a DenkOps project (applies staged env changes / restarts the app). No code re-upload; reuses the last build.", inputSchema: { project_id: exports_external.string() } }, async ({ project_id }) => guard(async () => {
     const r = await redeployImpl({ project_id }, resolveCtx());
     return ok(r, `Redeploying (v${r.version}).`);
+  }));
+  server.registerTool("get_public_paths", {
+    title: "List public paths",
+    description: "List a DenkOps project's public (unauthenticated) paths, plus the routes DenkOps has observed the app serve.",
+    inputSchema: { project_id: exports_external.string() }
+  }, async ({ project_id }) => guard(async () => {
+    const r = await getPublicPathsImpl({ project_id }, resolveCtx());
+    const text = r.publicPaths.length ? r.publicPaths.join(`
+`) : "No public paths set.";
+    return ok(r, text);
+  }));
+  server.registerTool("set_public_paths", {
+    title: "Set public paths",
+    description: "Replace a DenkOps project's list of public (unauthenticated) paths. The change is staged — run the redeploy tool to apply it.",
+    inputSchema: { project_id: exports_external.string(), paths: exports_external.array(exports_external.string()) }
+  }, async ({ project_id, paths }) => guard(async () => {
+    const r = await setPublicPathsImpl({ project_id, paths }, resolveCtx());
+    return ok(r, `Set ${r.publicPaths.length} public path(s). Run redeploy to apply.`);
   }));
   server.registerTool("login", {
     title: "Log in to DenkOps",

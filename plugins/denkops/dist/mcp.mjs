@@ -19694,13 +19694,35 @@ async function redeploy(args) {
     throw new Error(`redeploy failed (${res.status}): ${await errorFrom(res)}`);
   return await res.json();
 }
+async function queryProjectLogs(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const p = new URLSearchParams;
+  if (args.limit !== undefined)
+    p.set("limit", String(args.limit));
+  if (args.afterId !== undefined)
+    p.set("afterId", String(args.afterId));
+  if (args.since)
+    p.set("since", args.since);
+  if (args.level)
+    p.set("level", args.level);
+  if (args.tail && !args.afterId)
+    p.set("tail", "1");
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/logs?${p.toString()}`, {
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`logs failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
 // ../cli/src/lib/config.ts
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+var KNOWN_KEYS = ["name", "slug", "runtime", "region", "project"];
 var ConfigSchema = exports_external.object({
   name: exports_external.string().min(1),
   slug: exports_external.string().min(1),
   runtime: exports_external.enum(["bun", "python"]),
+  region: exports_external.string().optional(),
   project: exports_external.string().optional()
 });
 async function readProjectConfig(dir) {
@@ -19708,7 +19730,12 @@ async function readProjectConfig(dir) {
   if (!existsSync(path)) {
     throw new Error("denkops.json not found — create one with { name, slug, runtime }");
   }
-  const parsed = ConfigSchema.safeParse(JSON.parse(readFileSync(path, "utf8")));
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  const unknown3 = Object.keys(raw).filter((k) => !KNOWN_KEYS.includes(k));
+  if (unknown3.length > 0) {
+    console.warn(`denkops.json: ignoring unknown field(s): ${unknown3.join(", ")}`);
+  }
+  const parsed = ConfigSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error(`invalid denkops.json: ${parsed.error.issues.map((i) => i.message).join(", ")}`);
   }
@@ -23244,6 +23271,19 @@ async function statusImpl(input, ctx) {
   return getStatus({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, fetchImpl: ctx.fetchImpl });
 }
 async function logsImpl(input, ctx) {
+  if (input.since || input.level) {
+    const r = await queryProjectLogs({
+      controlPlaneUrl: ctx.controlPlaneUrl,
+      token: ctx.token,
+      projectId: input.project_id,
+      since: input.since,
+      level: input.level,
+      limit: input.lines,
+      tail: true,
+      fetchImpl: ctx.fetchImpl
+    });
+    return { lines: r.lines.map((l) => l.line) };
+  }
   return {
     lines: await getContainerLogs({
       controlPlaneUrl: ctx.controlPlaneUrl,
@@ -23319,10 +23359,15 @@ function registerTools(server) {
   }));
   server.registerTool("get_container_logs", {
     title: "Read container logs",
-    description: "Read recent container logs for a DenkOps project (for debugging a failing deploy).",
-    inputSchema: { project_id: exports_external.string(), lines: exports_external.number().int().positive().optional() }
-  }, async ({ project_id, lines }) => guard(async () => {
-    const r = await logsImpl({ project_id, lines }, resolveCtx());
+    description: "Read recent container logs for a DenkOps project (for debugging a failing deploy). Optional `since` (e.g. 15m, 2h, 3d, or an ISO timestamp) and `level` (a token matched in the log line, e.g. error) filter the persisted log store.",
+    inputSchema: {
+      project_id: exports_external.string(),
+      lines: exports_external.number().int().positive().optional(),
+      since: exports_external.string().optional(),
+      level: exports_external.string().optional()
+    }
+  }, async ({ project_id, lines, since, level }) => guard(async () => {
+    const r = await logsImpl({ project_id, lines, since, level }, resolveCtx());
     return ok(r, r.lines.join(`
 `) || "(no logs)");
   }));

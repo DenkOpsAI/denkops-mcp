@@ -19658,6 +19658,42 @@ async function deleteProject(args) {
   if (!res.ok)
     throw new Error(`delete failed (${res.status}): ${await errorFrom(res)}`);
 }
+async function listEnv(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/env`, { headers: authHeaders(args.token) });
+  if (!res.ok)
+    throw new Error(`env list failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function setEnv(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/env/${args.key}`, {
+    method: "PUT",
+    headers: { ...authHeaders(args.token), "content-type": "application/json" },
+    body: JSON.stringify({ value: args.value })
+  });
+  if (!res.ok)
+    throw new Error(`env set failed (${res.status}): ${await errorFrom(res)}`);
+}
+async function unsetEnv(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/env/${args.key}`, {
+    method: "DELETE",
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`env unset failed (${res.status}): ${await errorFrom(res)}`);
+}
+async function redeploy(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/redeploy`, {
+    method: "POST",
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`redeploy failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
 // ../cli/src/lib/config.ts
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -23103,8 +23139,24 @@ def hello():
 
 ## Persistent storage
 
-The container filesystem is ephemeral EXCEPT **\`/persist\`**, a per-project volume that survives
-redeploys. Put a SQLite DB or files there, e.g. \`/persist/denkops.store\`.
+Small, durable key-value storage is provided by the DenkOps SDK — a SQLite store on the per-project
+**\`/persist\`** volume (survives redeploys).
+
+**bun** — \`bun add @denkopsai/sdk\`:
+\`\`\`ts
+import denkops from "@denkopsai/sdk";
+denkops.store.set("visits", "1");        // string values; optional { ttlSeconds }
+const v = denkops.store.get("visits");   // string | null
+\`\`\`
+
+**python** — add \`denkops\` to \`requirements.txt\`:
+\`\`\`python
+import denkops
+denkops.store.set("visits", "1")
+visits = denkops.store.get("visits")     # str | None
+\`\`\`
+
+For raw files, write under \`/persist\` directly — its path is also in \`DENKOPS_PERSIST\`.
 
 ## Environment
 
@@ -23219,6 +23271,20 @@ async function deleteProjectImpl(input, ctx) {
   await deleteProject({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, confirm: input.confirm, fetchImpl: ctx.fetchImpl });
   return { ok: true };
 }
+async function listEnvImpl(input, ctx) {
+  return listEnv({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, fetchImpl: ctx.fetchImpl });
+}
+async function setEnvImpl(input, ctx) {
+  await setEnv({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, key: input.key, value: input.value, fetchImpl: ctx.fetchImpl });
+  return { ok: true };
+}
+async function unsetEnvImpl(input, ctx) {
+  await unsetEnv({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, key: input.key, fetchImpl: ctx.fetchImpl });
+  return { ok: true };
+}
+async function redeployImpl(input, ctx) {
+  return redeploy({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, fetchImpl: ctx.fetchImpl });
+}
 function ok(structured, text) {
   return { content: [{ type: "text", text }], structuredContent: structured };
 }
@@ -23283,6 +23349,26 @@ function registerTools(server) {
   }, async ({ project_id, confirm }) => guard(async () => {
     const r = await deleteProjectImpl({ project_id, confirm }, resolveCtx());
     return ok(r, r.instruction ?? "Project permanently deleted.");
+  }));
+  server.registerTool("list_env", { title: "List env vars", description: "List a DenkOps project's environment variable KEYS (values are write-only and never shown). Includes whether changes are pending a redeploy.", inputSchema: { project_id: exports_external.string() } }, async ({ project_id }) => guard(async () => {
+    const r = await listEnvImpl({ project_id }, resolveCtx());
+    const text = r.vars.map((v2) => `${v2.key} (updated ${v2.updatedAt})`).join(`
+`) || "No env vars set.";
+    return ok(r, r.pending ? `${text}
+
+(changes pending — run redeploy to apply)` : text);
+  }));
+  server.registerTool("set_env", { title: "Set an env var", description: "Set/overwrite a DenkOps project's environment variable. Values are write-only (cannot be read back). The change is staged — run the redeploy tool to apply it. Reserved keys (DENKOPS_*, etc.) are rejected.", inputSchema: { project_id: exports_external.string(), key: exports_external.string(), value: exports_external.string() } }, async ({ project_id, key, value }) => guard(async () => {
+    const r = await setEnvImpl({ project_id, key, value }, resolveCtx());
+    return ok(r, `Set ${key}. Run redeploy to apply.`);
+  }));
+  server.registerTool("unset_env", { title: "Delete an env var", description: "Delete a DenkOps project's environment variable. Run redeploy to apply.", inputSchema: { project_id: exports_external.string(), key: exports_external.string() } }, async ({ project_id, key }) => guard(async () => {
+    const r = await unsetEnvImpl({ project_id, key }, resolveCtx());
+    return ok(r, `Deleted ${key}. Run redeploy to apply.`);
+  }));
+  server.registerTool("redeploy", { title: "Redeploy a project", description: "Re-run the current version of a DenkOps project (applies staged env changes / restarts the app). No code re-upload; reuses the last build.", inputSchema: { project_id: exports_external.string() } }, async ({ project_id }) => guard(async () => {
+    const r = await redeployImpl({ project_id }, resolveCtx());
+    return ok(r, `Redeploying (v${r.version}).`);
   }));
   server.registerTool("login", {
     title: "Log in to DenkOps",

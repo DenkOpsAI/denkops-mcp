@@ -1,6 +1,6 @@
 ---
 name: denkops-api
-description: Use when building or deploying a DenkOps API/app (bun + Hono or python + FastAPI) — the paved-road conventions: what files to write, what the wrapper provides (/health, auth, ai_hint, timeout), /persist storage, DENKOPS_API_KEY, and how to deploy.
+description: Use when building or deploying a DenkOps API/app (bun + Hono or python + FastAPI) — the paved-road conventions: what files to write, what the wrapper provides (/health, auth, ai_hint, timeout), the @denkopsai/sdk key-value store on /persist, DENKOPS_API_KEY, and how to deploy.
 ---
 
 # Building a DenkOps API
@@ -52,8 +52,24 @@ def hello():
 
 ## Persistent storage
 
-The container filesystem is ephemeral EXCEPT **`/persist`**, a per-project volume that survives
-redeploys. Put a SQLite DB or files there, e.g. `/persist/denkops.store`.
+Small, durable key-value storage is provided by the DenkOps SDK — a SQLite store on the per-project
+**`/persist`** volume (survives redeploys).
+
+**bun** — `bun add @denkopsai/sdk`:
+```ts
+import denkops from "@denkopsai/sdk";
+denkops.store.set("visits", "1");        // string values; optional { ttlSeconds }
+const v = denkops.store.get("visits");   // string | null
+```
+
+**python** — add `denkops` to `requirements.txt`:
+```python
+import denkops
+denkops.store.set("visits", "1")
+visits = denkops.store.get("visits")     # str | None
+```
+
+For raw files, write under `/persist` directly — its path is also in `DENKOPS_PERSIST`.
 
 ## Environment
 

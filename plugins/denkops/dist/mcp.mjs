@@ -19734,6 +19734,26 @@ async function setPublicPaths(args) {
     throw new Error(`set public-paths failed (${res.status}): ${await errorFrom(res)}`);
   return await res.json();
 }
+async function getEgressPolicy(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/egress`, {
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`egress failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function setEgressPolicy(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/egress`, {
+    method: "PUT",
+    headers: { ...authHeaders(args.token), "content-type": "application/json" },
+    body: JSON.stringify({ enabled: args.enabled, allowlist: args.allowlist })
+  });
+  if (!res.ok)
+    throw new Error(`set egress failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
 // ../cli/src/lib/config.ts
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -23356,6 +23376,19 @@ async function getPublicPathsImpl(input, ctx) {
 async function setPublicPathsImpl(input, ctx) {
   return setPublicPaths({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, paths: input.paths, fetchImpl: ctx.fetchImpl });
 }
+async function getEgressPolicyImpl(input, ctx) {
+  return getEgressPolicy({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, projectId: input.project_id, fetchImpl: ctx.fetchImpl });
+}
+async function setEgressPolicyImpl(input, ctx) {
+  return setEgressPolicy({
+    controlPlaneUrl: ctx.controlPlaneUrl,
+    token: ctx.token,
+    projectId: input.project_id,
+    enabled: input.enabled,
+    allowlist: input.allowlist,
+    fetchImpl: ctx.fetchImpl
+  });
+}
 function ok(structured, text) {
   return { content: [{ type: "text", text }], structuredContent: structured };
 }
@@ -23463,6 +23496,24 @@ function registerTools(server) {
   }, async ({ project_id, paths }) => guard(async () => {
     const r = await setPublicPathsImpl({ project_id, paths }, resolveCtx());
     return ok(r, `Set ${r.publicPaths.length} public path(s). Run redeploy to apply.`);
+  }));
+  server.registerTool("get_egress_policy", {
+    title: "Get egress policy",
+    description: "Read a project's egress allow-list policy (enabled, allowlist, recently-blocked hosts).",
+    inputSchema: { project_id: exports_external.string() }
+  }, async ({ project_id }) => guard(async () => {
+    const r = await getEgressPolicyImpl({ project_id }, resolveCtx());
+    const text = `Egress ${r.enabled ? "enabled (default-deny)" : "disabled (all egress allowed)"}. Allowlist: ${r.allowlist.length ? r.allowlist.join(", ") : "(none)"}.${r.blocked.length ? ` Recently blocked: ${r.blocked.map((b2) => b2.host).join(", ")}.` : ""}`;
+    return ok(r, text);
+  }));
+  server.registerTool("set_egress_policy", {
+    title: "Set egress policy",
+    description: "Set a project's egress allow-list. enabled=true is zero-trust default-deny; only listed hosts (exact or *.domain) may egress. Allow-list edits apply live; enabling/disabling applies on the next deploy.",
+    inputSchema: { project_id: exports_external.string(), enabled: exports_external.boolean(), allowlist: exports_external.array(exports_external.string()) }
+  }, async ({ project_id, enabled, allowlist }) => guard(async () => {
+    const r = await setEgressPolicyImpl({ project_id, enabled, allowlist }, resolveCtx());
+    const text = `Egress ${r.enabled ? "enabled" : "disabled"} with ${r.allowlist.length} allowed host(s).${r.pending ? " Enable/disable takes effect on next deploy." : ""}`;
+    return ok(r, text);
   }));
   server.registerTool("login", {
     title: "Log in to DenkOps",

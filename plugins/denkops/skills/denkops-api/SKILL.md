@@ -91,17 +91,31 @@ most seamless:
   `DENKOPS_API_KEY` from your deploy result). This works today with zero config, since every
   deployed app is already bearer-gated. On Claude's side this is an org-admin-entered, static-header
   connector (currently in beta there).
-- **OAuth — no code required.** Set `"connector": true` in `denkops.json` and deploy. In Claude, add
-  a custom connector with URL `https://<slug>.<app-domain>/mcp` — DenkOps hosts the whole OAuth
-  handshake (dynamic client registration + PKCE) via the `connect.denkops.com` authorization server,
-  and serves `/.well-known/oauth-protected-resource` at your app's origin so Claude can discover it.
-  You don't write any auth code.
+- **OAuth — no code required.** Set `"connector": true` in `denkops.json` and deploy. This turns your
+  deployed app into a **spec-compliant remote MCP server** at `https://<slug>.<app-domain>/mcp` that
+  Claude connects to over OAuth. DenkOps hosts the entire handshake for you — **dynamic client registration
+  + PKCE** — via the `connect.denkops.com` authorization server, and serves
+  `/.well-known/oauth-protected-resource` at your app's origin so Claude can discover it. You write no
+  auth code: enable it by setting the flag and deploying, then in Claude add a custom connector with
+  that `/mcp` URL and authorize.
 
 **Access control** (OAuth path) is set by the project owner on the dashboard's Connect page:
 **Public** (anyone who reaches the URL), an **email allowlist** (only those exact emails), or the
 default — project members only. People authorizing a connection sign in with GitHub, Google, or
 Microsoft; each resulting connection is listed on the Connect page and can be revoked there, taking
 effect immediately.
+
+## Other MCP tools
+
+Beyond deploy and config, the DenkOps MCP server also exposes tools for day-2 operations:
+
+- **Custom domains** — `add_domain` / `list_domains` / `verify_domain` / `remove_domain` attach a
+  custom domain to a project, return its DNS verification token, and check or detach it.
+- **Observability** — `list_traces` / `get_trace` inspect recent request traces and their spans;
+  `get_metrics` returns latency percentiles, error rate, and resource usage over the last 24h.
+- **Connections** — `list_connections` / `create_connection` / `revoke_connection` manage scoped,
+  revocable connection tokens that other agents/CLIs use to authenticate against this workspace
+  (separate from a project's `DENKOPS_API_KEY`).
 
 ## Config & deploy
 

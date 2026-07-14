@@ -5,25 +5,43 @@ var __getProtoOf = Object.getPrototypeOf;
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+function __accessProp(key) {
+  return this[key];
+}
+var __toESMCache_node;
+var __toESMCache_esm;
 var __toESM = (mod, isNodeMode, target) => {
+  var canCache = mod != null && typeof mod === "object";
+  if (canCache) {
+    var cache = isNodeMode ? __toESMCache_node ??= new WeakMap : __toESMCache_esm ??= new WeakMap;
+    var cached = cache.get(mod);
+    if (cached)
+      return cached;
+  }
   target = mod != null ? __create(__getProtoOf(mod)) : {};
   const to = isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target;
   for (let key of __getOwnPropNames(mod))
     if (!__hasOwnProp.call(to, key))
       __defProp(to, key, {
-        get: () => mod[key],
+        get: __accessProp.bind(mod, key),
         enumerable: true
       });
+  if (canCache)
+    cache.set(mod, to);
   return to;
 };
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
+var __returnValue = (v) => v;
+function __exportSetter(name, newValue) {
+  this[name] = __returnValue.bind(null, newValue);
+}
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, {
       get: all[name],
       enumerable: true,
       configurable: true,
-      set: (newValue) => all[name] = () => newValue
+      set: __exportSetter.bind(all, name)
     });
 };
 
@@ -6373,7 +6391,7 @@ var require_formats = __commonJS((exports) => {
   }
   var TIME = /^(\d\d):(\d\d):(\d\d(?:\.\d+)?)(z|([+-])(\d\d)(?::?(\d\d))?)?$/i;
   function getTime(strictTimeZone) {
-    return function time(str) {
+    return function time3(str) {
       const matches = TIME.exec(str);
       if (!matches)
         return false;
@@ -13884,7 +13902,7 @@ class JSONSchemaGenerator {
               if (val === undefined) {
                 if (this.unrepresentable === "throw") {
                   throw new Error("Literal `undefined` cannot be represented in JSON Schema");
-                } else {}
+                }
               } else if (typeof val === "bigint") {
                 if (this.unrepresentable === "throw") {
                   throw new Error("BigInt literals cannot be represented in JSON Schema");
@@ -19754,6 +19772,103 @@ async function setEgressPolicy(args) {
     throw new Error(`set egress failed (${res.status}): ${await errorFrom(res)}`);
   return await res.json();
 }
+async function addDomain(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/domains`, {
+    method: "POST",
+    headers: { ...authHeaders(args.token), "content-type": "application/json" },
+    body: JSON.stringify({ domain: args.domain })
+  });
+  if (!res.ok)
+    throw new Error(`add domain failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function listDomains(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/domains`, { headers: authHeaders(args.token) });
+  if (!res.ok)
+    throw new Error(`list domains failed (${res.status}): ${await errorFrom(res)}`);
+  return (await res.json()).domains;
+}
+async function verifyDomain(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/domains/${args.domainId}/verify`, {
+    method: "POST",
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`verify domain failed (${res.status}) — the DNS TXT record isn't visible yet: ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function removeDomain(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/domains/${args.domainId}`, {
+    method: "DELETE",
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`remove domain failed (${res.status}): ${await errorFrom(res)}`);
+}
+async function listTraces(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/traces`, {
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`list traces failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function getTrace(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/traces/${args.traceId}`, {
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`get trace failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function getMetrics(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/metrics`, {
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`get metrics failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function listConnections(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/connections`, { headers: authHeaders(args.token) });
+  if (!res.ok)
+    throw new Error(`list connections failed (${res.status}): ${await errorFrom(res)}`);
+  return (await res.json()).connections;
+}
+async function createConnection(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/connections`, {
+    method: "POST",
+    headers: { ...authHeaders(args.token), "content-type": "application/json" },
+    body: JSON.stringify({
+      label: args.label,
+      agentType: args.agentType ?? "other",
+      env: args.envScope ?? "none",
+      expiresInDays: args.expiresInDays === undefined ? 90 : args.expiresInDays,
+      projects: args.projects ?? null
+    })
+  });
+  if (!res.ok)
+    throw new Error(`create connection failed (${res.status}): ${await errorFrom(res)}`);
+  return await res.json();
+}
+async function revokeConnection(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/connections/${args.connectionId}/revoke`, {
+    method: "POST",
+    headers: authHeaders(args.token)
+  });
+  if (!res.ok)
+    throw new Error(`revoke connection failed (${res.status}): ${await errorFrom(res)}`);
+}
 // ../cli/src/lib/config.ts
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -23249,17 +23364,31 @@ most seamless:
   \`DENKOPS_API_KEY\` from your deploy result). This works today with zero config, since every
   deployed app is already bearer-gated. On Claude's side this is an org-admin-entered, static-header
   connector (currently in beta there).
-- **OAuth — no code required.** Set \`"connector": true\` in \`denkops.json\` and deploy. In Claude, add
-  a custom connector with URL \`https://<slug>.<app-domain>/mcp\` — DenkOps hosts the whole OAuth
-  handshake (dynamic client registration + PKCE) via the \`connect.denkops.com\` authorization server,
-  and serves \`/.well-known/oauth-protected-resource\` at your app's origin so Claude can discover it.
-  You don't write any auth code.
+- **OAuth — no code required.** Set \`"connector": true\` in \`denkops.json\` and deploy. This turns your
+  deployed app into a **spec-compliant remote MCP server** at \`https://<slug>.<app-domain>/mcp\` that
+  Claude connects to over OAuth. DenkOps hosts the entire handshake for you — **dynamic client registration
+  + PKCE** — via the \`connect.denkops.com\` authorization server, and serves
+  \`/.well-known/oauth-protected-resource\` at your app's origin so Claude can discover it. You write no
+  auth code: enable it by setting the flag and deploying, then in Claude add a custom connector with
+  that \`/mcp\` URL and authorize.
 
 **Access control** (OAuth path) is set by the project owner on the dashboard's Connect page:
 **Public** (anyone who reaches the URL), an **email allowlist** (only those exact emails), or the
 default — project members only. People authorizing a connection sign in with GitHub, Google, or
 Microsoft; each resulting connection is listed on the Connect page and can be revoked there, taking
 effect immediately.
+
+## Other MCP tools
+
+Beyond deploy and config, the DenkOps MCP server also exposes tools for day-2 operations:
+
+- **Custom domains** — \`add_domain\` / \`list_domains\` / \`verify_domain\` / \`remove_domain\` attach a
+  custom domain to a project, return its DNS verification token, and check or detach it.
+- **Observability** — \`list_traces\` / \`get_trace\` inspect recent request traces and their spans;
+  \`get_metrics\` returns latency percentiles, error rate, and resource usage over the last 24h.
+- **Connections** — \`list_connections\` / \`create_connection\` / \`revoke_connection\` manage scoped,
+  revocable connection tokens that other agents/CLIs use to authenticate against this workspace
+  (separate from a project's \`DENKOPS_API_KEY\`).
 
 ## Config & deploy
 
@@ -23415,6 +23544,47 @@ async function setEgressPolicyImpl(input, ctx) {
     fetchImpl: ctx.fetchImpl
   });
 }
+async function addDomainImpl(input, ctx) {
+  return addDomain({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, projectId: input.project_id, domain: input.domain });
+}
+async function listDomainsImpl(input, ctx) {
+  return { domains: await listDomains({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, projectId: input.project_id }) };
+}
+async function verifyDomainImpl(input, ctx) {
+  return verifyDomain({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, projectId: input.project_id, domainId: input.domain_id });
+}
+async function removeDomainImpl(input, ctx) {
+  await removeDomain({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, projectId: input.project_id, domainId: input.domain_id });
+  return { ok: true };
+}
+async function listTracesImpl(input, ctx) {
+  return listTraces({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, projectId: input.project_id });
+}
+async function getTraceImpl(input, ctx) {
+  return getTrace({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, projectId: input.project_id, traceId: input.trace_id });
+}
+async function getMetricsImpl(input, ctx) {
+  return getMetrics({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, projectId: input.project_id });
+}
+async function listConnectionsImpl(ctx) {
+  return { connections: await listConnections({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl }) };
+}
+async function createConnectionImpl(input, ctx) {
+  return createConnection({
+    controlPlaneUrl: ctx.controlPlaneUrl,
+    token: ctx.token,
+    fetchImpl: ctx.fetchImpl,
+    label: input.label,
+    agentType: input.agent_type,
+    envScope: input.env_scope,
+    expiresInDays: input.expires_in_days,
+    projects: input.projects
+  });
+}
+async function revokeConnectionImpl(input, ctx) {
+  await revokeConnection({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, connectionId: input.connection_id });
+  return { ok: true };
+}
 function ok(structured, text) {
   return { content: [{ type: "text", text }], structuredContent: structured };
 }
@@ -23540,6 +23710,73 @@ function registerTools(server) {
     const r = await setEgressPolicyImpl({ project_id, enabled, allowlist }, resolveCtx());
     const text = `Egress ${r.enabled ? "enabled" : "disabled"} with ${r.allowlist.length} allowed host(s).${r.pending ? " Enable/disable takes effect on next deploy." : ""}`;
     return ok(r, text);
+  }));
+  server.registerTool("add_domain", { title: "Add a custom domain", description: "Attach a custom domain to a DenkOps project. Returns the _denkops-verify TXT record token to set at your DNS provider, then run verify_domain.", inputSchema: { project_id: exports_external.string(), domain: exports_external.string() } }, async ({ project_id, domain }) => guard(async () => {
+    const r = await addDomainImpl({ project_id, domain }, resolveCtx());
+    return ok(r, `Added ${r.domain}. Set a ${r.verifyRecord?.type ?? "TXT"} record: ${r.verifyRecord?.name} = ${r.verifyRecord?.value}, then run verify_domain (domain_id ${r.id}). CNAME target: ${r.cnameTarget}.`);
+  }));
+  server.registerTool("list_domains", { title: "List custom domains", description: "List a DenkOps project's custom domains and whether each is verified.", inputSchema: { project_id: exports_external.string() } }, async ({ project_id }) => guard(async () => {
+    const r = await listDomainsImpl({ project_id }, resolveCtx());
+    return ok(r, r.domains.map((d) => `${d.domain} [${d.verified ? "verified" : "pending"}] (${d.id})`).join(`
+`) || "No custom domains.");
+  }));
+  server.registerTool("verify_domain", { title: "Verify a custom domain", description: "Verify a DenkOps custom domain's DNS TXT record. Fails if the TXT record isn't visible yet.", inputSchema: { project_id: exports_external.string(), domain_id: exports_external.string() } }, async ({ project_id, domain_id }) => guard(async () => {
+    const r = await verifyDomainImpl({ project_id, domain_id }, resolveCtx());
+    return ok(r, r.verified ? "Verified — routing is now active." : "Not verified yet.");
+  }));
+  server.registerTool("remove_domain", { title: "Remove a custom domain", description: "Detach a custom domain from a DenkOps project.", inputSchema: { project_id: exports_external.string(), domain_id: exports_external.string() } }, async ({ project_id, domain_id }) => guard(async () => {
+    await removeDomainImpl({ project_id, domain_id }, resolveCtx());
+    return ok({ ok: true }, "Removed.");
+  }));
+  server.registerTool("list_traces", { title: "List traces", description: "List recent request traces for a DenkOps project (name, status, duration, span count).", inputSchema: { project_id: exports_external.string() } }, async ({ project_id }) => guard(async () => {
+    const r = await listTracesImpl({ project_id }, resolveCtx());
+    const text = r.traces.map((t) => `${t.name} [${t.statusCode ?? "-"}] ${t.durationMs}ms, ${t.spanCount} span(s) (${t.traceId})`).join(`
+`) || "No traces.";
+    return ok(r, text);
+  }));
+  server.registerTool("get_trace", { title: "Get a trace", description: "Get the spans of a single DenkOps request trace by project_id + trace_id.", inputSchema: { project_id: exports_external.string(), trace_id: exports_external.string() } }, async ({ project_id, trace_id }) => guard(async () => {
+    const r = await getTraceImpl({ project_id, trace_id }, resolveCtx());
+    const text = r.spans.map((s3) => `${s3.name} [${s3.kind}] ${s3.durationMs}ms status=${s3.statusCode ?? "-"}${s3.parentSpanId ? ` parent=${s3.parentSpanId}` : ""}`).join(`
+`) || "No spans.";
+    return ok(r, text);
+  }));
+  server.registerTool("get_metrics", { title: "Get project metrics", description: "Get a DenkOps project's request metrics (latency percentiles, error rate), latest resource sample, and rejected-request count over the last 24h.", inputSchema: { project_id: exports_external.string() } }, async ({ project_id }) => guard(async () => {
+    const r = await getMetricsImpl({ project_id }, resolveCtx());
+    const req = r.request;
+    const reqText = `${req.windowMinutes}m window: ${req.requests} req(s), error rate ${(req.errorRate * 100).toFixed(1)}%, p50=${req.p50Ms ?? "-"}ms p95=${req.p95Ms ?? "-"}ms p99=${req.p99Ms ?? "-"}ms`;
+    const resText = r.resource ? `Resource: ${r.resource.memMb}/${r.resource.memCapMb}MB, ${r.resource.cpuPct}% CPU (at ${r.resource.at})` : "Resource: no samples yet.";
+    const text = `${reqText}
+${resText}
+Rejected requests (24h): ${r.scanned24h}`;
+    return ok(r, text);
+  }));
+  server.registerTool("list_connections", {
+    title: "List connections",
+    description: "List DenkOps connection tokens (scoped, revocable agent/CLI credentials) for this workspace: label, agent type, scopes, and status.",
+    inputSchema: {}
+  }, async () => guard(async () => {
+    const r = await listConnectionsImpl(resolveCtx());
+    const text = r.connections.map((c) => `${c.label ?? "(unlabeled)"} [${c.agentType ?? "other"}] status=${c.status} env=${c.scopes.env} (${c.id})`).join(`
+`) || "No connections.";
+    return ok(r, text);
+  }));
+  server.registerTool("create_connection", {
+    title: "Create a connection",
+    description: "Mint a new scoped, revocable DenkOps connection token for an agent/CLI to authenticate with. The token is returned exactly once in the response — store it immediately, it cannot be retrieved again.",
+    inputSchema: {
+      label: exports_external.string().optional(),
+      agent_type: exports_external.string().optional().describe("e.g. claude-code, codex, openclaw, hermes, other (default other)"),
+      env_scope: exports_external.enum(["none", "read", "write"]).optional().describe("env var access scope (default none)"),
+      expires_in_days: exports_external.union([exports_external.literal(30), exports_external.literal(90), exports_external.literal(365)]).nullable().optional().describe("null = never expires (default 90)"),
+      projects: exports_external.array(exports_external.string()).optional().describe("restrict to these project ids (default: all projects)")
+    }
+  }, async (input) => guard(async () => {
+    const r = await createConnectionImpl(input, resolveCtx());
+    return ok(r, `Connection created: ${r.connection.label ?? "(unlabeled)"} [${r.connection.agentType ?? "other"}] (${r.connection.id}). Token (store it now — it is shown only once): ${r.token}`);
+  }));
+  server.registerTool("revoke_connection", { title: "Revoke a connection", description: "Immediately revoke a DenkOps connection token by its connection_id.", inputSchema: { connection_id: exports_external.string() } }, async ({ connection_id }) => guard(async () => {
+    const r = await revokeConnectionImpl({ connection_id }, resolveCtx());
+    return ok(r, "Connection revoked.");
   }));
   server.registerTool("login", {
     title: "Log in to DenkOps",

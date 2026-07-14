@@ -81,10 +81,34 @@ For raw files, write under `/persist` directly — its path is also in `DENKOPS_
 
 - Default **128 MB** RAM per app — keep dependencies lean.
 
+## Custom connectors for Claude
+
+A deployed DenkOps app can be added to Claude as a custom connector. Two ways, from simplest to
+most seamless:
+
+- **Simple — static header.** Add your app in Claude as a custom connector with URL
+  `https://<slug>.<app-domain>` and header `Authorization: Bearer <DENKOPS_API_KEY>` (the
+  `DENKOPS_API_KEY` from your deploy result). This works today with zero config, since every
+  deployed app is already bearer-gated. On Claude's side this is an org-admin-entered, static-header
+  connector (currently in beta there).
+- **OAuth — no code required.** Set `"connector": true` in `denkops.json` and deploy. In Claude, add
+  a custom connector with URL `https://<slug>.<app-domain>/mcp` — DenkOps hosts the whole OAuth
+  handshake (dynamic client registration + PKCE) via the `connect.denkops.com` authorization server,
+  and serves `/.well-known/oauth-protected-resource` at your app's origin so Claude can discover it.
+  You don't write any auth code.
+
+**Access control** (OAuth path) is set by the project owner on the dashboard's Connect page:
+**Public** (anyone who reaches the URL), an **email allowlist** (only those exact emails), or the
+default — project members only. People authorizing a connection sign in with GitHub, Google, or
+Microsoft; each resulting connection is listed on the Connect page and can be revoked there, taking
+effect immediately.
+
 ## Config & deploy
 
-- `denkops.json` = `{ name, slug, runtime }`, plus optional `region` and `streaming`. It's created
-  automatically on the first deploy (inferred from the directory); edit `slug`/`name` to pin them.
+- `denkops.json` = `{ name, slug, runtime }`, plus optional `region`, `streaming`, and `connector`. It's
+  created automatically on the first deploy (inferred from the directory); edit `slug`/`name` to pin them.
+- `"connector": true` makes the app connectable to Claude as a custom connector over OAuth — see
+  "Custom connectors for Claude" above. Applies on the next deploy.
 - `"streaming": true` opts the project out of response buffering so it can stream (SSE / chunked /
   long-poll) — set it for LLM token streams, progress events, etc. Trade-off: a streaming project has
   no response-size cap. Applies on the next deploy (say **"deploy on DenkOps"** to apply a change).

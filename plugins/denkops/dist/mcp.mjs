@@ -23359,6 +23359,10 @@ For raw files, write under \`/persist\` directly — its path is also in \`DENKO
 A deployed DenkOps app can be added to Claude as a custom connector. Two ways, from simplest to
 most seamless:
 
+> Building a full **MCP server** (tools/resources/prompts)? Use the **\`denkops-mcp\`** skill — it
+> serves the stateless MCP protocol for you via \`@denkopsai/sdk/mcp\`. This section is about turning
+> any app into a connector.
+
 - **Simple — static header.** Add your app in Claude as a custom connector with URL
   \`https://<slug>.<app-domain>\` and header \`Authorization: Bearer <DENKOPS_API_KEY>\` (the
   \`DENKOPS_API_KEY\` from your deploy result). This works today with zero config, since every

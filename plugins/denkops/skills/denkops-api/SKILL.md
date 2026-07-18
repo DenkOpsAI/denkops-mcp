@@ -73,6 +73,24 @@ visits = denkops.store.get("visits")     # str | None
 
 For raw files, write under `/persist` directly — its path is also in `DENKOPS_PERSIST`.
 
+## Scheduled work (cron)
+
+Run code on a schedule from inside your always-on slot with `denkops.cron` — no external scheduler,
+no timeout to hit. It persists last-run state to `/persist` and re-arms on restart, so you don't
+hand-roll `setInterval`.
+
+```ts
+import denkops from "@denkopsai/sdk";
+
+denkops.cron("0 2 * * *", async () => {
+  await nightlyCleanup();
+}); // 5-field cron or @daily/@hourly/@every 5m; UTC by default
+```
+
+Options: `{ name, timezone, catchUp, overlap, onError }`. `catchUp: true` runs one missed occurrence
+on boot; overlapping runs are skipped by default; a throwing handler is logged and never crashes the
+slot. Inspect state with `denkops.cron.status(name)`.
+
 ## Environment
 
 - **`DENKOPS_API_KEY`** — the bearer key clients (and the wrapper) use.

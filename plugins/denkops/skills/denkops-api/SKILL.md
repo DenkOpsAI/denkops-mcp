@@ -91,6 +91,13 @@ Options: `{ name, timezone, catchUp, overlap, onError }`. `catchUp: true` runs o
 on boot; overlapping runs are skipped by default; a throwing handler is logged and never crashes the
 slot. Inspect state with `denkops.cron.status(name)`.
 
+For **platform-scheduled HTTP triggers** with dashboard/MCP visibility, declare jobs in
+`denkops.json` instead: `"cron": [{ "schedule": "0 2 * * *", "path": "/jobs/nightly" }]`. DenkOps
+POSTs your app's `path` on schedule (authenticated as your app, with an `X-Denkops-Cron` header),
+records each run, and shows last/next-run + status. Your handler should **ack fast** (return 2xx, do
+long work asynchronously) — for long in-process jobs use `denkops.cron` above. See `list_crons` /
+`run_cron`, or the project's Scheduled jobs panel.
+
 ## Environment
 
 - **`DENKOPS_API_KEY`** — the bearer key clients (and the wrapper) use.

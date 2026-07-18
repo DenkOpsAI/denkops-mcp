@@ -19869,10 +19869,30 @@ async function revokeConnection(args) {
   if (!res.ok)
     throw new Error(`revoke connection failed (${res.status}): ${await errorFrom(res)}`);
 }
+async function listCrons(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/crons`, { headers: authHeaders(args.token) });
+  if (!res.ok)
+    throw new Error(`list crons failed (${res.status}): ${await errorFrom(res)}`);
+  return (await res.json()).crons;
+}
+async function runCron(args) {
+  const doFetch = args.fetchImpl ?? fetch;
+  const res = await doFetch(`${args.controlPlaneUrl}/api/projects/${args.projectId}/crons/${args.jobId}/run`, { method: "POST", headers: authHeaders(args.token) });
+  if (!res.ok)
+    throw new Error(`run cron failed (${res.status}): ${await errorFrom(res)}`);
+}
 // ../cli/src/lib/config.ts
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-var KNOWN_KEYS = ["name", "slug", "runtime", "region", "project", "streaming", "connector"];
+var KNOWN_KEYS = ["name", "slug", "runtime", "region", "project", "streaming", "connector", "cron"];
+var CronSpecSchema = exports_external.object({
+  schedule: exports_external.string().min(1),
+  path: exports_external.string().min(1).startsWith("/"),
+  name: exports_external.string().min(1).optional(),
+  method: exports_external.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional(),
+  timezone: exports_external.string().min(1).optional()
+});
 var ConfigSchema = exports_external.object({
   name: exports_external.string().min(1),
   slug: exports_external.string().min(1),
@@ -19880,7 +19900,8 @@ var ConfigSchema = exports_external.object({
   region: exports_external.string().optional(),
   project: exports_external.string().optional(),
   streaming: exports_external.boolean().optional(),
-  connector: exports_external.boolean().optional()
+  connector: exports_external.boolean().optional(),
+  cron: exports_external.array(CronSpecSchema).optional()
 });
 async function readProjectConfig(dir) {
   const path = join(dir, "denkops.json");
@@ -23225,6 +23246,7 @@ async function runDeploy(opts) {
         public: false,
         streaming: cfg.streaming,
         connector: cfg.connector ?? false,
+        cron: cfg.cron,
         projectId: cfg.project,
         expectNew: !hadConfig && !cfg.project
       },
@@ -23363,6 +23385,13 @@ denkops.cron("0 2 * * *", async () => {
 Options: \`{ name, timezone, catchUp, overlap, onError }\`. \`catchUp: true\` runs one missed occurrence
 on boot; overlapping runs are skipped by default; a throwing handler is logged and never crashes the
 slot. Inspect state with \`denkops.cron.status(name)\`.
+
+For **platform-scheduled HTTP triggers** with dashboard/MCP visibility, declare jobs in
+\`denkops.json\` instead: \`"cron": [{ "schedule": "0 2 * * *", "path": "/jobs/nightly" }]\`. DenkOps
+POSTs your app's \`path\` on schedule (authenticated as your app, with an \`X-Denkops-Cron\` header),
+records each run, and shows last/next-run + status. Your handler should **ack fast** (return 2xx, do
+long work asynchronously) — for long in-process jobs use \`denkops.cron\` above. See \`list_crons\` /
+\`run_cron\`, or the project's Scheduled jobs panel.
 
 ## Environment
 
@@ -23615,6 +23644,13 @@ async function revokeConnectionImpl(input, ctx) {
   await revokeConnection({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, connectionId: input.connection_id });
   return { ok: true };
 }
+async function listCronsImpl(ctx, projectId) {
+  return { crons: await listCrons({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, projectId }) };
+}
+async function runCronImpl(ctx, projectId, jobId) {
+  await runCron({ controlPlaneUrl: ctx.controlPlaneUrl, token: ctx.token, fetchImpl: ctx.fetchImpl, projectId, jobId });
+  return { ok: true };
+}
 function ok(structured, text) {
   return { content: [{ type: "text", text }], structuredContent: structured };
 }
@@ -23808,6 +23844,13 @@ Rejected requests (24h): ${r.scanned24h}`;
     const r = await revokeConnectionImpl({ connection_id }, resolveCtx());
     return ok(r, "Connection revoked.");
   }));
+  server.registerTool("list_crons", { title: "List scheduled jobs", description: "List a project's managed cron jobs with next/last run and status.", inputSchema: { project_id: exports_external.string() } }, async ({ project_id }) => guard(async () => {
+    const r = await listCronsImpl(resolveCtx(), project_id);
+    const text = r.crons.map((j2) => `${j2.name} [${j2.enabled ? "on" : "paused"}] ${j2.schedule} → ${j2.path} · next ${j2.nextRunAt ?? "—"} · last ${j2.lastStatus ?? "—"}`).join(`
+`);
+    return ok(r, text || 'No cron jobs. Declare them in denkops.json under "cron".');
+  }));
+  server.registerTool("run_cron", { title: "Run a scheduled job now", description: "Trigger a managed cron job immediately (records a manual run).", inputSchema: { project_id: exports_external.string(), job_id: exports_external.string() } }, async ({ project_id, job_id }) => guard(async () => ok(await runCronImpl(resolveCtx(), project_id, job_id), "Triggered.")));
   server.registerTool("login", {
     title: "Log in to DenkOps",
     description: "Log in to DenkOps by approving a pairing in your browser (opens app.denkops.com). Run this if a deploy says you're not logged in.",

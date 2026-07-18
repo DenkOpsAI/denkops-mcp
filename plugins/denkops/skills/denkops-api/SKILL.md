@@ -167,3 +167,40 @@ Beyond deploy and config, the DenkOps MCP server also exposes tools for day-2 op
   project is created zero-config. Your app goes live at `https://<slug>.<app-domain>`, and the deploy
   result includes the `project_id` and the `DENKOPS_API_KEY` to call it.
 
+## Deploy from GitHub Actions (CI)
+
+Auto-deploy on `git push`: GitHub Actions runs a one-shot deploy against DenkOps. Set this up in
+three steps, and when a user asks to "deploy from GitHub" / "set up CI deploy", write the workflow
+file for them.
+
+1. **Mint a CI token.** Create a **project-pinned** connection token with **create disabled**
+   (least privilege — steady-state CI only redeploys): on the dashboard Connect page, or with the
+   `create_connection` tool (pin it to this project, `canCreate: false`). The token is shown once —
+   it is the CI secret.
+2. **Store it as a GitHub secret.** In the repo: Settings → Secrets and variables → Actions → New
+   repository secret, name `DENKOPS_TOKEN`, value the token from step 1.
+3. **Add the workflow** `.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy to DenkOps
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npx -y @denkopsai/mcp deploy
+        env:
+          DENKOPS_TOKEN: ${{ secrets.DENKOPS_TOKEN }}
+          DENKOPS_CONTROL_PLANE_URL: https://api.denkops.com
+```
+
+`npx -y @denkopsai/mcp deploy` packs the repo and deploys it, exiting non-zero on failure so the
+job fails on a bad deploy. Auth is env-only (`DENKOPS_TOKEN` + `DENKOPS_CONTROL_PLANE_URL`), no
+browser login.
+

@@ -19574,6 +19574,38 @@ class StdioServerTransport {
     });
   }
 }
+// ../shared/src/config.ts
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+function configPath(env = process.env) {
+  const home = env.DENKOPS_CONFIG_HOME ?? homedir();
+  return join(home, ".denkops", "config.json");
+}
+function readConfig(path = configPath()) {
+  if (!existsSync(path))
+    return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function writeConfig(cfg, path = configPath()) {
+  mkdirSync(dirname(path), { recursive: true, mode: 448 });
+  writeFileSync(path, JSON.stringify(cfg, null, 2), { mode: 384 });
+  chmodSync(path, 384);
+}
+function loadToken(env = process.env) {
+  if (env.DENKOPS_TOKEN)
+    return env.DENKOPS_TOKEN;
+  return readConfig(configPath(env))?.token ?? null;
+}
+function resolveControlPlaneUrl(env = process.env) {
+  return env.DENKOPS_CONTROL_PLANE_URL ?? readConfig(configPath(env))?.controlPlaneUrl ?? "http://localhost:8080";
+}
+// ../shared/src/index.ts
+var APP_DOMAIN = process.env.DENKOPS_APP_DOMAIN ?? "denkops.host";
 
 // ../cli/src/lib/api.ts
 class DeployConflictError extends Error {
@@ -19883,8 +19915,8 @@ async function runCron(args) {
     throw new Error(`run cron failed (${res.status}): ${await errorFrom(res)}`);
 }
 // ../cli/src/lib/config.ts
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync as existsSync2, readFileSync as readFileSync2, readdirSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { basename, join as join2 } from "node:path";
 var KNOWN_KEYS = ["name", "slug", "runtime", "region", "project", "streaming", "connector", "cron"];
 var CronSpecSchema = exports_external.object({
   schedule: exports_external.string().min(1),
@@ -19904,11 +19936,11 @@ var ConfigSchema = exports_external.object({
   cron: exports_external.array(CronSpecSchema).optional()
 });
 async function readProjectConfig(dir) {
-  const path = join(dir, "denkops.json");
-  if (!existsSync(path)) {
+  const path = join2(dir, "denkops.json");
+  if (!existsSync2(path)) {
     throw new Error("denkops.json not found — create one with { name, slug, runtime }");
   }
-  const raw = JSON.parse(readFileSync(path, "utf8"));
+  const raw = JSON.parse(readFileSync2(path, "utf8"));
   const unknown3 = Object.keys(raw).filter((k) => !KNOWN_KEYS.includes(k));
   if (unknown3.length > 0) {
     console.warn(`denkops.json: ignoring unknown field(s): ${unknown3.join(", ")}`);
@@ -19934,20 +19966,20 @@ function inferProjectConfig(dir) {
 }
 function writeProjectConfig(dir, cfg) {
   try {
-    writeFileSync(join(dir, "denkops.json"), JSON.stringify(cfg, null, 2) + `
+    writeFileSync2(join2(dir, "denkops.json"), JSON.stringify(cfg, null, 2) + `
 `);
   } catch {}
 }
 function pinProject(dir, projectId) {
-  const path = join(dir, "denkops.json");
+  const path = join2(dir, "denkops.json");
   try {
-    if (!existsSync(path))
+    if (!existsSync2(path))
       return;
-    const cfg = JSON.parse(readFileSync(path, "utf8"));
+    const cfg = JSON.parse(readFileSync2(path, "utf8"));
     if (cfg.project === projectId)
       return;
     cfg.project = projectId;
-    writeFileSync(path, JSON.stringify(cfg, null, 2) + `
+    writeFileSync2(path, JSON.stringify(cfg, null, 2) + `
 `);
   } catch {}
 }
@@ -19979,8 +20011,8 @@ function parseDotEnv(text) {
   return out;
 }
 // ../cli/src/lib/pack.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { join as join2 } from "node:path";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
+import { join as join3 } from "node:path";
 
 // ../../node_modules/tar/dist/esm/index.min.js
 import Qr from "events";
@@ -23199,10 +23231,10 @@ var To = (s3) => {
 // ../cli/src/lib/pack.ts
 var ALWAYS_EXCLUDE = ["node_modules", ".venv", ".git"];
 async function loadIgnore(dir) {
-  const path = join2(dir, ".denkopsignore");
-  if (!existsSync2(path))
+  const path = join3(dir, ".denkopsignore");
+  if (!existsSync3(path))
     return [];
-  return readFileSync2(path, "utf8").split(`
+  return readFileSync3(path, "utf8").split(`
 `).map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
 }
 function isExcluded(entryPath, ignore) {
@@ -23222,16 +23254,16 @@ async function packDirectory(dir) {
   return new Uint8Array(Buffer.concat(chunks));
 }
 // ../cli/src/commands/deploy.ts
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
-import { join as join3 } from "node:path";
+import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
+import { join as join4 } from "node:path";
 async function runDeploy(opts) {
   if (!opts.token) {
     throw new Error("no auth token — set DENKOPS_TOKEN (interactive login comes later)");
   }
-  const hadConfig = existsSync3(join3(opts.dir, "denkops.json"));
+  const hadConfig = existsSync4(join4(opts.dir, "denkops.json"));
   const cfg = hadConfig ? await readProjectConfig(opts.dir) : inferProjectConfig(opts.dir);
-  const envPath = join3(opts.dir, ".env");
-  const env = existsSync3(envPath) ? parseDotEnv(readFileSync3(envPath, "utf8")) : {};
+  const envPath = join4(opts.dir, ".env");
+  const env = existsSync4(envPath) ? parseDotEnv(readFileSync4(envPath, "utf8")) : {};
   const tarball = await packDirectory(opts.dir);
   try {
     const handle = await deployRequest({
@@ -23265,38 +23297,8 @@ async function runDeploy(opts) {
     throw err;
   }
 }
-// ../shared/src/config.ts
-import { chmodSync, existsSync as existsSync4, mkdirSync, readFileSync as readFileSync4, writeFileSync as writeFileSync2 } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join as join4 } from "node:path";
-function configPath(env = process.env) {
-  const home = env.DENKOPS_CONFIG_HOME ?? homedir();
-  return join4(home, ".denkops", "config.json");
-}
-function readConfig(path = configPath()) {
-  if (!existsSync4(path))
-    return null;
-  try {
-    return JSON.parse(readFileSync4(path, "utf8"));
-  } catch {
-    return null;
-  }
-}
-function writeConfig(cfg, path = configPath()) {
-  mkdirSync(dirname(path), { recursive: true, mode: 448 });
-  writeFileSync2(path, JSON.stringify(cfg, null, 2), { mode: 384 });
-  chmodSync(path, 384);
-}
-function loadToken(env = process.env) {
-  if (env.DENKOPS_TOKEN)
-    return env.DENKOPS_TOKEN;
-  return readConfig(configPath(env))?.token ?? null;
-}
-function resolveControlPlaneUrl(env = process.env) {
-  return env.DENKOPS_CONTROL_PLANE_URL ?? readConfig(configPath(env))?.controlPlaneUrl ?? "http://localhost:8080";
-}
 // ../shared/src/index.ts
-var APP_DOMAIN = process.env.DENKOPS_APP_DOMAIN ?? "denkops.host";
+var APP_DOMAIN2 = process.env.DENKOPS_APP_DOMAIN ?? "denkops.host";
 // src/guide.ts
 var DENKOPS_API_GUIDE = `# Building a DenkOps API
 
@@ -23461,6 +23463,43 @@ Beyond deploy and config, the DenkOps MCP server also exposes tools for day-2 op
 - To ship: say **"deploy on DenkOps"**. The MCP packs the current directory and deploys it; a new
   project is created zero-config. Your app goes live at \`https://<slug>.<app-domain>\`, and the deploy
   result includes the \`project_id\` and the \`DENKOPS_API_KEY\` to call it.
+
+## Deploy from GitHub Actions (CI)
+
+Auto-deploy on \`git push\`: GitHub Actions runs a one-shot deploy against DenkOps. Set this up in
+three steps, and when a user asks to "deploy from GitHub" / "set up CI deploy", write the workflow
+file for them.
+
+1. **Mint a CI token.** Create a **project-pinned** connection token with **create disabled**
+   (least privilege — steady-state CI only redeploys): on the dashboard Connect page, or with the
+   \`create_connection\` tool (pin it to this project, \`canCreate: false\`). The token is shown once —
+   it is the CI secret.
+2. **Store it as a GitHub secret.** In the repo: Settings → Secrets and variables → Actions → New
+   repository secret, name \`DENKOPS_TOKEN\`, value the token from step 1.
+3. **Add the workflow** \`.github/workflows/deploy.yml\`:
+
+\`\`\`yaml
+name: Deploy to DenkOps
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npx -y @denkopsai/mcp deploy
+        env:
+          DENKOPS_TOKEN: \${{ secrets.DENKOPS_TOKEN }}
+          DENKOPS_CONTROL_PLANE_URL: https://api.denkops.com
+\`\`\`
+
+\`npx -y @denkopsai/mcp deploy\` packs the repo and deploys it, exiting non-zero on failure so the
+job fails on a bad deploy. Auth is env-only (\`DENKOPS_TOKEN\` + \`DENKOPS_CONTROL_PLANE_URL\`), no
+browser login.
 `;
 
 // src/login.ts
@@ -23866,7 +23905,35 @@ Rejected requests (24h): ${r.scanned24h}`;
   }, async () => denkopsGuideResult());
 }
 
+// src/cli.ts
+async function runCli(_args, deps) {
+  if (!deps.loadToken(deps.env)) {
+    deps.errorLog("DenkOps: set the DENKOPS_TOKEN environment variable (a project-scoped connection token) to deploy from CI.");
+    return 1;
+  }
+  try {
+    const ctx = deps.resolveCtx(deps.env);
+    const r = await deps.deployImpl({}, ctx);
+    deps.log(`✓ deployed → ${r.url} (v${r.version})`);
+    return 0;
+  } catch (e) {
+    deps.errorLog(`DenkOps deploy failed: ${e instanceof Error ? e.message : String(e)}`);
+    return 1;
+  }
+}
+
 // src/index.ts
+if (process.argv[2] === "deploy") {
+  const code = await runCli(process.argv.slice(2), {
+    env: process.env,
+    loadToken,
+    resolveCtx,
+    deployImpl,
+    log: (s3) => console.log(s3),
+    errorLog: (s3) => console.error(s3)
+  });
+  process.exit(code);
+}
 var server = new McpServer({ name: "denkops", version: "0.0.0" });
 registerTools(server);
 await server.connect(new StdioServerTransport);

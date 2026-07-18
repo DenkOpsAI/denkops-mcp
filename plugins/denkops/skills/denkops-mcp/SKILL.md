@@ -59,6 +59,39 @@ export default defineMcp({
 3. **Access control** (dashboard Connect page): **Public**, an **email allowlist**, or the default
    **project members only**. People authorize with GitHub/Google/Microsoft; revoke any connection there.
 
+## Connector troubleshooting
+
+If Claude authorizes your account but then fails to connect, its message maps to exactly one of two
+status codes from the DenkOps OAuth layer. Read which half of the error you got:
+
+- **"no MCP server was found at the provided URL"** = **404**. Either the OAuth layer couldn't
+  resolve your project (wrong URL, or `"connector": true` not in the *deployed* `denkops.json` —
+  set it **and redeploy**), **or** — most common when authorize succeeded — auth passed but your app
+  returns 404 for `POST /mcp`, i.e. it isn't actually serving the protocol. Confirm you
+  `export default defineMcp({ ... })` from `@denkopsai/sdk/mcp` and redeployed. The connector URL
+  must end in **`/mcp`**, not the app root.
+- **"…or your account doesn't have access to it"** = **401**. The connection token didn't match the
+  project (or was revoked on the Connect page). Re-authorize; if it persists, check the connection is
+  listed and not revoked.
+
+**Self-test (definitive).** The OAuth layer also accepts your app's own `DENKOPS_API_KEY` as a
+bearer, so you can probe past the auth layer straight to your app:
+
+```bash
+curl -i -X POST https://<slug>.<app-domain>/mcp \
+  -H "authorization: Bearer $DENKOPS_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}'
+```
+
+- **200** with a `protocolVersion` → your app serves `/mcp` correctly; the issue is the connection
+  (re-authorize) or the URL you gave Claude.
+- **404** → your app has no `/mcp` route → add `export default defineMcp(...)` and redeploy.
+- **401** → the request didn't carry a valid key; you're testing the auth layer, not your app.
+
+Note: `/health` is **not** a connector reachability check — on a connector project the OAuth layer
+gates every path, so `/health` answers 401 at the edge without a bearer. That's expected.
+
 ## Schema notes
 
 - `input` accepts a **Zod** schema (recommended: runtime validation + types + the JSON Schema shown in

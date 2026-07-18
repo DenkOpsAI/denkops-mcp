@@ -23316,7 +23316,9 @@ def hello():
 
 ## What the wrapper gives you for free — DO NOT write these yourself
 
-- **\`/health\`** — public, returns \`{"status":"ok"}\`. Don't define your own.
+- **\`/health\`** — returns \`{"status":"ok"}\`. Don't define your own. Public **only for normal apps**;
+  on a \`"connector": true\` project the OAuth layer gates *every* path (including \`/health\`) at the
+  edge, so \`/health\` answers 401 without a bearer there. Don't use it as a connector reachability check.
 - **Auth-by-Default** — every route except \`/health\` requires \`Authorization: Bearer $DENKOPS_API_KEY\`.
   Missing/wrong key → 401 with the \`ai_hint\` JSON error contract. Don't add your own auth middleware.
 - **Tracing** and a request **timeout** (\`DENKOPS_TIMEOUT_SEC\`).
@@ -23368,13 +23370,19 @@ most seamless:
   \`DENKOPS_API_KEY\` from your deploy result). This works today with zero config, since every
   deployed app is already bearer-gated. On Claude's side this is an org-admin-entered, static-header
   connector (currently in beta there).
-- **OAuth — no code required.** Set \`"connector": true\` in \`denkops.json\` and deploy. This turns your
-  deployed app into a **spec-compliant remote MCP server** at \`https://<slug>.<app-domain>/mcp\` that
-  Claude connects to over OAuth. DenkOps hosts the entire handshake for you — **dynamic client registration
-  + PKCE** — via the \`connect.denkops.com\` authorization server, and serves
-  \`/.well-known/oauth-protected-resource\` at your app's origin so Claude can discover it. You write no
-  auth code: enable it by setting the flag and deploying, then in Claude add a custom connector with
-  that \`/mcp\` URL and authorize.
+- **OAuth — no *auth* code required.** Set \`"connector": true\` in \`denkops.json\` and deploy. This wraps
+  your app in the OAuth layer at \`https://<slug>.<app-domain>/mcp\`: DenkOps hosts the entire handshake
+  for you — **dynamic client registration + PKCE** — via the \`connect.denkops.com\` authorization server,
+  and serves \`/.well-known/oauth-protected-resource\` at your app's origin so Claude can discover it.
+  You write no auth code.
+
+  > ⚠️ **The flag adds OAuth in front of \`/mcp\` — it does NOT make your app speak MCP.** Your app must
+  > actually serve \`POST /mcp\` (the JSON-RPC MCP protocol) itself, or Claude gets a 404 behind the auth
+  > ("no MCP server found at the provided URL"). The paved way is the **\`denkops-mcp\`** skill:
+  > \`export default defineMcp({ … })\` from \`@denkopsai/sdk/mcp\` serves the whole protocol. Only flip
+  > \`connector: true\` on an app that already exposes \`/mcp\`.
+
+  Then in Claude add a custom connector with that \`/mcp\` URL and authorize.
 
 **Access control** (OAuth path) is set by the project owner on the dashboard's Connect page:
 **Public** (anyone who reaches the URL), an **email allowlist** (only those exact emails), or the

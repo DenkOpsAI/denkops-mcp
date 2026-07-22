@@ -156,10 +156,15 @@ Beyond deploy and config, the DenkOps MCP server also exposes tools for day-2 op
 
 ## Config & deploy
 
-- `denkops.json` = `{ name, slug, runtime }`, plus optional `region`, `streaming`, and `connector`. It's
+- `denkops.json` = `{ name, slug, runtime }`, plus optional `region`, `streaming`, `connector`, and `cron`. It's
   created automatically on the first deploy (inferred from the directory); edit `slug`/`name` to pin them.
 - `"connector": true` makes the app connectable to Claude as a custom connector over OAuth — see
   "Custom connectors for Claude" above. Applies on the next deploy.
+- `"cron": [{ "schedule": "0 2 * * *", "path": "/jobs/nightly", "method": "POST", "timezone": "UTC", "name": "nightly" }]`
+  declares managed scheduled HTTP triggers (any runtime, incl. Python): DenkOps calls each `path` on
+  `schedule`, visible/triggerable via `list_crons`/`run_cron` and the Scheduled jobs panel. `method`,
+  `timezone` and `name` are optional. For in-process Bun jobs use `denkops.cron` instead — see
+  "Scheduled work (cron)" above. Applies on the next deploy.
 - `"streaming": true` opts the project out of response buffering so it can stream (SSE / chunked /
   long-poll) — set it for LLM token streams, progress events, etc. Trade-off: a streaming project has
   no response-size cap. Applies on the next deploy (say **"deploy on DenkOps"** to apply a change).

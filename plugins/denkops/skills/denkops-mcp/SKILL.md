@@ -97,6 +97,19 @@ gates every path, so `/health` answers 401 at the edge without a bearer. That's 
 - `input` accepts a **Zod** schema (recommended: runtime validation + types + the JSON Schema shown in
   `tools/list`) or a **plain JSON Schema** object (no runtime validation). Omit `input` for no arguments.
 
+## Scheduled work (cron)
+
+A connector often needs a job on a schedule (refresh a cache, sync a source). Two ways, both against
+your always-on slot (standard 5-field cron, or `@daily`/`@hourly`/`@every 5m`; UTC by default):
+
+- **In-process** — `denkops.cron("0 2 * * *", async () => { await refresh(); }, { name, timezone, catchUp, overlap })`
+  from `@denkopsai/sdk`. Restart-safe (run state persists to `/persist`), no HTTP hop, inspect with
+  `denkops.cron.status(name)`. Best when the job is code living in your app.
+- **Managed declarative** — add `"cron": [{ "schedule": "0 2 * * *", "path": "/jobs/nightly", "method": "POST" }]`
+  to `denkops.json`. DenkOps calls your app's `path` on schedule, and the job is visible + manually
+  triggerable via the `list_crons` / `run_cron` MCP tools and the dashboard Scheduled jobs panel.
+  `method`, `timezone` and `name` are optional. Applies on the next deploy.
+
 ## Out of scope (today)
 
 MCP Apps (sandboxed UIs), Tasks, and server-initiated elicitation are not part of the builder yet.
